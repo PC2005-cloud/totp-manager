@@ -1,0 +1,123 @@
+# 每次往 master 推送，就自动构建 Windows exe，并更新到一个「始终只有一个」的 Release。
+#
+# 「只有一个」是怎么保证的：发布前先把仓库里现存的 release 全部删掉
+# （包括草稿和预发布，以及它们占用的 tag），再用固定 tag `latest` 建一个新的。
+# 好处：
+#   - Releases 页面上永远只有一条，不会越攒越多
+#   - 下载地址永远稳定：/releases/latest/download/totp-manager.exe
+#   - 构建失败时不会先删掉旧的（删除放在构建成功之后），线上始终有可用版本
+name: 构建并发布
+
+on:
+  push:
+    branches: [master]
+  # 也可以在 Actions 页面手动点一次重新构建
+  workflow_dispatch:
+
+# 同时只允许一个构建在跑；连着推两次时，取消还没跑完的那次
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+# 增删 release 需要写权限
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 构建 exe 并发布
+    runs-on: windows-latest
+
+    steps:
+      - name: 取代码
+        uses: actions/checkout@v4
+
+      - name: 装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: 装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: 装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # 缓存 Rust 编译产物，第一次之后能省好几分钟
+      - name: 缓存 Rust 编译
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: 装依赖（Tauri CLI）
+        run: pnpm install --frozen-lockfile
+
+      # 先跑测试：算法或存储坏了就别发版
+      - name: 跑测试
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: 构建 exe
+        run: pnpm build
+
+      - name: 校验产物存在
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXE=src-tauri/target/release/totp-manager.exe
+          if [ ! -f "$EXE" ]; then
+            echo "::error::没找到 $EXE，看看 target/release 里有什么："
+            ls -la src-tauri/target/release || true
+            exit 1
+          fi
+          ls -lh "$EXE"
+
+      - name: 清掉已有 Release（保证始终只剩一个）
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # 草稿和预发布也要一起删，所以走 API 而不是 gh release list
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
+             --jq '.[] | [.id, .tag_name] | @tsv' |
+          while IFS=$'\t' read -r id tag; do
+            [ -z "$id" ] && continue
+            echo "删除 release: id=$id tag=$tag"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
+            # release 删了 tag 还在，顺手清掉，免得 tag 越攒越多
+            if [ -n "$tag" ] && [ "$tag" != "null" ]; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$tag" || true
+            fi
+          done
+
+      - name: 发布
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          EXE=src-tauri/target/release/totp-manager.exe
+          VERSION=$(jq -r .version src-tauri/tauri.conf.json)
+          SHORT=$(git rev-parse --short HEAD)
+
+          # 逐行 echo 写正文，不用 heredoc —— 免得把 YAML 里的缩进带进 markdown
+          {
+            echo "自动构建的 Windows 版本。每次推送 master 都会更新这一个 release，下载地址不变。"
+            echo
+            echo "- 版本：v$VERSION"
+            echo "- 提交：\`$SHORT\`"
+            echo "- 构建时间：$(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo "- 本次变更：$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+            echo
+            echo "**用法**：下载 \`totp-manager.exe\`，放进任意一个文件夹里运行。"
+            echo "数据文件 \`vault.json\` 会生成在 exe 同目录，备份或换机器时把整个文件夹搬走即可。"
+          } > release-notes.md
+
+          gh release create latest "$EXE" \
+            --title "TOTP Manager v$VERSION ($SHORT)" \
+            --notes-file release-notes.md
