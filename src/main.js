@@ -29,7 +29,6 @@ const listViewEl = document.getElementById("list-view");
 const formViewEl = document.getElementById("form-view");
 const listEl = document.getElementById("list");
 const searchEl = document.getElementById("search");
-const serviceListEl = document.getElementById("service-list");
 const formErrorEl = document.getElementById("form-error");
 const footerEl = document.getElementById("vault-path");
 
@@ -575,20 +574,182 @@ async function copyText(text, el, restoreTo) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 服务下拉选项：从已有记录里取服务名，去重后排序                      */
+/* 服务下拉（自绘，不用 <datalist>）                                   */
 /* ------------------------------------------------------------------ */
 
+/**
+ * 这一块原来用的是 <input list="…"> + <datalist>，坑太多，改成自己画：
+ *
+ * 1. datalist 的弹层是 WebView 之外的独立窗口，无边框窗口
+ *    （tauri.conf.json 里 decorations: false）下经常点不动、选不上；
+ * 2. refresh() 每秒跑一次，老实现每次都 replaceChildren() 重建全部选项。
+ *    弹层开着的时候被重建，Chromium 会直接把它关掉 —— 表现成「用着用着莫名
+ *    消失」，偶尔又会卡住关不掉。
+ *
+ * 现在菜单是页面内的绝对定位元素，重建时机完全由下面这几个函数控制，
+ * 服务名没有变化就一个 DOM 都不动。
+ */
+
+const serviceInputEl = document.getElementById("f-service");
+const serviceMenuEl = document.getElementById("f-service-menu");
+const serviceCaretEl = document.getElementById("f-service-caret");
+
+/** 可选的服务名（去重、排序后） */
+let serviceNames = [];
+
+/** 菜单里当前的条目元素，顺序与显示顺序一致 */
+let serviceItems = [];
+
+/** 高亮项下标，-1 表示没有 */
+let serviceActiveIndex = -1;
+
+/** 菜单是否展开 */
+let serviceMenuOpen = false;
+
+/** 上一次喂给菜单的服务名，用来判断要不要重画 */
+let serviceNamesKey = "";
+
+/** 从记录里算出服务名。内容没变就直接返回 —— 这是「不闪」的关键 */
 function syncServiceOptions(entries) {
   const names = [...new Set(entries.map((e) => e.label))].sort((a, b) =>
     a.localeCompare(b, "zh")
   );
-  serviceListEl.replaceChildren();
-  for (const n of names) {
-    const opt = document.createElement("option");
-    opt.value = n;
-    serviceListEl.appendChild(opt);
-  }
+
+  const key = names.join("\u0000");
+  if (key === serviceNamesKey) return;
+
+  serviceNamesKey = key;
+  serviceNames = names;
+
+  // 菜单关着就等下次打开再画；开着就必须立刻跟上
+  if (serviceMenuOpen) renderServiceMenu();
 }
+
+/** 按输入框里的内容过滤，重画菜单 */
+function renderServiceMenu() {
+  const q = serviceInputEl.value.trim().toLowerCase();
+  const shown = q
+    ? serviceNames.filter((n) => n.toLowerCase().includes(q))
+    : serviceNames;
+
+  serviceItems = [];
+  serviceActiveIndex = -1;
+  serviceMenuEl.replaceChildren();
+
+  if (shown.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "combo-empty";
+    empty.textContent = serviceNames.length
+      ? "没有匹配的服务"
+      : "还没有已存在的服务";
+    serviceMenuEl.appendChild(empty);
+    return;
+  }
+
+  shown.forEach((name, i) => {
+    const item = document.createElement("div");
+    item.className = "combo-item";
+    item.textContent = name;
+
+    // 用 mousedown 而不是 click：click 之前输入框已经 blur，
+    // 菜单会先关掉，点击就落空了
+    item.addEventListener("mousedown", (ev) => {
+      ev.preventDefault(); // 保住输入框焦点，选完还能接着打字
+      pickService(name);
+    });
+    item.addEventListener("mouseenter", () => setActiveService(i));
+
+    serviceItems.push(item);
+    serviceMenuEl.appendChild(item);
+  });
+}
+
+/** 高亮第 i 项，并保证它滚进可见区域 */
+function setActiveService(i) {
+  serviceActiveIndex = i;
+  serviceItems.forEach((el, idx) => el.classList.toggle("active", idx === i));
+
+  const el = serviceItems[i];
+  if (el) el.scrollIntoView({ block: "nearest" });
+}
+
+function openServiceMenu() {
+  if (serviceMenuOpen) return;
+
+  renderServiceMenu();
+  serviceMenuEl.hidden = false;
+  serviceMenuOpen = true;
+  serviceInputEl.setAttribute("aria-expanded", "true");
+}
+
+function closeServiceMenu() {
+  if (!serviceMenuOpen) return;
+
+  serviceMenuEl.hidden = true;
+  serviceMenuOpen = false;
+  serviceActiveIndex = -1;
+  serviceInputEl.setAttribute("aria-expanded", "false");
+}
+
+function pickService(name) {
+  serviceInputEl.value = name;
+  closeServiceMenu();
+}
+
+/* 点输入框展开。不用 focus 事件 —— 打开表单时会自动聚焦，
+   那样菜单会自己弹出来 */
+serviceInputEl.addEventListener("click", openServiceMenu);
+
+/* 边打字边过滤 */
+serviceInputEl.addEventListener("input", () => {
+  openServiceMenu();
+  renderServiceMenu();
+});
+
+serviceInputEl.addEventListener("keydown", (ev) => {
+  if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+    ev.preventDefault();
+    openServiceMenu();
+
+    const n = serviceItems.length;
+    if (n === 0) return;
+
+    // 还没高亮时：↓ 从第一项开始，↑ 从最后一项开始
+    let next = serviceActiveIndex + (ev.key === "ArrowDown" ? 1 : -1);
+    if (next < 0) next = n - 1;
+    if (next >= n) next = 0;
+    setActiveService(next);
+    return;
+  }
+
+  if (ev.key === "Enter") {
+    if (serviceMenuOpen && serviceActiveIndex >= 0) {
+      ev.preventDefault();
+      pickService(serviceItems[serviceActiveIndex].textContent);
+    } else {
+      closeServiceMenu();
+    }
+    return;
+  }
+
+  if (ev.key === "Escape") closeServiceMenu();
+});
+
+/* 右边的箭头：再点一下收起 */
+serviceCaretEl.addEventListener("mousedown", (ev) => ev.preventDefault());
+serviceCaretEl.addEventListener("click", () => {
+  if (serviceMenuOpen) {
+    closeServiceMenu();
+  } else {
+    serviceInputEl.focus();
+    openServiceMenu();
+  }
+});
+
+/* 点到组件外面就收起 */
+document.addEventListener("mousedown", (ev) => {
+  if (serviceMenuOpen && !ev.target.closest(".combo")) closeServiceMenu();
+});
 
 /* ------------------------------------------------------------------ */
 /* 搜索                                                                */
@@ -633,6 +794,8 @@ function openForm(entry = null) {
   listViewEl.style.display = "none";
   formViewEl.classList.add("open");
   formErrorEl.textContent = "";
+  // 菜单保持收起：点输入框才展开，免得一进表单就弹出来
+  closeServiceMenu();
   document.getElementById("f-service").focus();
 }
 
@@ -642,6 +805,7 @@ function closeForm() {
   formViewEl.classList.remove("open");
   listViewEl.style.display = "flex";
   formErrorEl.textContent = "";
+  closeServiceMenu();
   for (const id of FORM_FIELDS) document.getElementById(id).value = "";
 }
 
@@ -745,6 +909,81 @@ prefersLight.addEventListener("change", (ev) => {
 
 // 主题本身已由内联脚本设好，这里只是把按钮图标同步过去
 applyTheme(currentTheme());
+
+/* ------------------------------------------------------------------ */
+/* 自绘标题栏                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Windows 原生标题栏的样式改不了，已经在 tauri.conf.json 里关掉
+ * （decorations: false），标题栏由 index.html 自己画。这里接上三种行为：
+ *   - 标题栏空白处按下鼠标 → 拖动窗口
+ *   - 双击标题栏空白处 → 最大化 / 还原
+ *   - 右侧三个按钮 → 最小化 / 最大化还原 / 关闭
+ *
+ * 命令都走 lib.rs 里自己写的 window_*，而不是 Tauri 的 data-tauri-drag-region：
+ * 那个属性内部依赖核心窗口命令的 ACL 授权，而自己的命令不受限制。
+ */
+const titlebarEl = document.getElementById("titlebar");
+
+titlebarEl.addEventListener("mousedown", (ev) => {
+  // 只处理左键；按在按钮上不拖，否则点按钮会把窗口一起拖走
+  if (ev.button !== 0 || ev.target.closest("button")) return;
+
+  ev.preventDefault();
+
+  // detail === 2 表示这是双击的第二下。这一下必须走最大化，不能去
+  // start_dragging —— 一旦进入系统拖动循环，就再也不会派发 dblclick 了。
+  if (ev.detail === 2) {
+    toggleMaximize();
+    return;
+  }
+
+  invoke("window_start_drag").catch(() => {
+    // 拖不动就算了，不值得弹提示打断用户
+  });
+});
+
+/** 切换最大化，并用命令返回的新状态立刻换图标 */
+async function toggleMaximize() {
+  try {
+    const maximized = await invoke("window_toggle_maximize");
+    document.body.classList.toggle("is-maximized", maximized);
+  } catch (e) {
+    toast(`窗口操作失败：${e}`);
+  }
+}
+
+/** 按窗口的真实状态同步图标（用户可能用 Win+↑ 或拖动改变了最大化状态） */
+async function syncMaximizedIcon() {
+  try {
+    const maximized = await invoke("window_is_maximized");
+    document.body.classList.toggle("is-maximized", maximized);
+  } catch {
+    // 读不到就不管，图标不准不影响使用
+  }
+}
+
+// 最大化 / 还原一定会伴随窗口尺寸变化，但拖动改变大小时也会连续触发，
+// 所以延后一点再查，避免拖一下发出去几十次 IPC。
+let maximizedSyncTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(maximizedSyncTimer);
+  maximizedSyncTimer = setTimeout(syncMaximizedIcon, 150);
+});
+
+/** 窗口按钮，失败时在底部提示一句（正常不会失败） */
+const windowCmd = (name, label) =>
+  invoke(name).catch((e) => toast(`${label}失败：${e}`));
+
+document.getElementById("win-min").onclick = () =>
+  windowCmd("window_minimize", "最小化");
+document.getElementById("win-max").onclick = toggleMaximize;
+document.getElementById("win-close").onclick = () =>
+  windowCmd("window_close", "关闭");
+
+// 启动时对一次表（例如窗口是以最大化状态打开的）
+syncMaximizedIcon();
 
 /* ------------------------------------------------------------------ */
 /* 启动                                                                */

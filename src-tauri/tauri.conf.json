@@ -13,7 +13,10 @@
         "title": "TOTP Manager",
         "width": 480,
         "height": 660,
-        "resizable": true
+        "minWidth": 380,
+        "minHeight": 460,
+        "resizable": true,
+        "decorations": false
       }
     ],
     "security": {

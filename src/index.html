@@ -19,11 +19,43 @@
     </script>
   </head>
   <body>
-    <header>
-      <h1>TOTP Manager</h1>
+    <!-- 整个 header 就是自绘标题栏：原生标题栏已在 tauri.conf.json 里关掉
+         （decorations: false）。拖动、双击最大化、最小化/最大化/关闭都在
+         main.js 的「自绘标题栏」一节里接上。 -->
+    <header id="titlebar">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <h1>TOTP Manager</h1>
+      </div>
+
       <div class="header-actions">
         <button id="btn-theme" class="btn btn-ghost btn-icon" title="切换主题">☀</button>
-        <button id="btn-add" class="btn btn-primary">+ 添加</button>
+
+        <!-- 分隔线：左边是应用操作，右边是窗口操作 -->
+        <span class="win-sep"></span>
+
+        <div class="win-controls">
+          <button id="win-min" class="win-btn" title="最小化" aria-label="最小化">
+            <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 5h9" /></svg>
+          </button>
+
+          <button id="win-max" class="win-btn" title="最大化" aria-label="最大化">
+            <!-- 两个图标都在，靠 body.is-maximized 决定显示哪个 -->
+            <svg class="ico-max" viewBox="0 0 10 10" aria-hidden="true">
+              <rect x="0.6" y="0.6" width="8.8" height="8.8" rx="1.4" />
+            </svg>
+            <svg class="ico-restore" viewBox="0 0 10 10" aria-hidden="true">
+              <rect x="0.6" y="2.6" width="6.8" height="6.8" rx="1.4" />
+              <path d="M2.6 2.6V0.6h6.8v6.8h-2" />
+            </svg>
+          </button>
+
+          <button id="win-close" class="win-btn win-close" title="关闭" aria-label="关闭">
+            <svg viewBox="0 0 10 10" aria-hidden="true">
+              <path d="M0.7 0.7l8.6 8.6M9.3 0.7L0.7 9.3" />
+            </svg>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -31,6 +63,7 @@
     <div id="list-view">
       <div class="searchbar">
         <input id="search" type="text" placeholder="搜索服务或账号…" autocomplete="off" />
+        <button id="btn-add" class="btn btn-primary">+ 添加</button>
       </div>
       <main id="list"></main>
     </div>
@@ -44,8 +77,30 @@
           服务 <span class="req">*</span>
           <span class="tip">可下拉选已有，也可输入新的</span>
         </label>
-        <input id="f-service" list="service-list" autocomplete="off" placeholder="GitHub" />
-        <datalist id="service-list"></datalist>
+        <!-- 不用 <datalist>：它的弹层是 WebView 之外的独立窗口，无边框窗口下
+             点不动也选不上，而且刷新时会把它顶掉。这里用自绘的下拉。 -->
+        <div class="combo">
+          <input
+            id="f-service"
+            type="text"
+            autocomplete="off"
+            placeholder="GitHub"
+            role="combobox"
+            aria-expanded="false"
+            aria-controls="f-service-menu"
+          />
+          <button
+            type="button"
+            id="f-service-caret"
+            class="combo-caret"
+            tabindex="-1"
+            title="展开已有服务"
+            aria-label="展开已有服务"
+          >
+            ▾
+          </button>
+          <div id="f-service-menu" class="combo-menu" role="listbox" hidden></div>
+        </div>
       </div>
 
       <div class="field">

@@ -281,9 +281,72 @@ fn vault_location() -> Result<String, String> {
     Ok(vault::vault_path()?.display().to_string())
 }
 
+/* ------------------------------------------------------------------------- */
+/* 窗口控制                                                                   */
+/* ------------------------------------------------------------------------- */
+/* Windows 原生标题栏没法改样式，所以 tauri.conf.json 里关掉了 `decorations`， */
+/* 标题栏由前端自绘（index.html 的 <header> + style.css 的 .win-*）。          */
+/* 下面这几个命令就是自绘标题栏需要的能力。                                    */
+/*                                                                           */
+/* 为什么不用 `data-tauri-drag-region` 属性：它内部走的是 Tauri 核心窗口命令，  */
+/* 需要在 capabilities 文件里显式授权；本项目至今没有任何 capabilities 文件，   */
+/* 而**自己定义的命令不受 ACL 限制**，所以直接自己写更省事，也和现有架构一致。 */
+/* ------------------------------------------------------------------------- */
+
+/// 【前端命令】开始拖动窗口 —— 自绘标题栏上按下鼠标时调用。
+///
+/// 由系统接管后续的拖动，所以这个调用本身很快就返回，窗口跟着鼠标走。
+#[tauri::command]
+fn window_start_drag(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.start_dragging().map_err(|e| format!("拖动窗口失败: {e}"))
+}
+
+/// 【前端命令】最小化窗口。
+#[tauri::command]
+fn window_minimize(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.minimize().map_err(|e| format!("最小化失败: {e}"))
+}
+
+/// 【前端命令】最大化 / 还原 切换，返回切换之后**是否处于最大化**。
+///
+/// 返回新状态是为了让前端立刻换成对的图标（最大化 ↔ 还原）。
+/// 判断和切换都以后端的实际窗口状态为准，所以即使前端的状态记错了
+/// （比如用户是按 Win+↑ 最大化的），点一下也会自动纠正回来。
+#[tauri::command]
+fn window_toggle_maximize(window: tauri::WebviewWindow) -> Result<bool, String> {
+    let maximized = window
+        .is_maximized()
+        .map_err(|e| format!("读取窗口状态失败: {e}"))?;
+
+    if maximized {
+        window.unmaximize().map_err(|e| format!("还原失败: {e}"))?;
+    } else {
+        window.maximize().map_err(|e| format!("最大化失败: {e}"))?;
+    }
+
+    Ok(!maximized)
+}
+
+/// 【前端命令】窗口当前是否最大化。
+///
+/// 前端在窗口尺寸变化后调用它来同步图标 —— 用户可能用 Win+↑、拖动窗口
+/// 或者双击标题栏改变最大化状态，前端的记录会过时。
+#[tauri::command]
+fn window_is_maximized(window: tauri::WebviewWindow) -> Result<bool, String> {
+    window
+        .is_maximized()
+        .map_err(|e| format!("读取窗口状态失败: {e}"))
+}
+
+/// 【前端命令】关闭窗口（同时也就退出了程序）。
+#[tauri::command]
+fn window_close(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.close().map_err(|e| format!("关闭窗口失败: {e}"))
+}
+
 /// 启动应用 —— 由 `main.rs` 调用。
 ///
-/// 这里只做两件事：注册上面那六个命令，然后进入 Tauri 的事件循环。
+/// 这里只做两件事：注册上面那些命令，然后进入 Tauri 的事件循环。
 /// 事件循环会一直阻塞到用户关闭窗口为止。
 ///
 /// `#[cfg_attr(mobile, ...)]` 是为了将来移植到移动端时能自动生成入口点，
@@ -292,12 +355,19 @@ fn vault_location() -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
+            // 数据相关
             list_entries,
             add_entry,
             update_entry,
             delete_entry,
             update_recovery_codes,
-            vault_location
+            vault_location,
+            // 自绘标题栏相关
+            window_start_drag,
+            window_minimize,
+            window_toggle_maximize,
+            window_is_maximized,
+            window_close
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");
