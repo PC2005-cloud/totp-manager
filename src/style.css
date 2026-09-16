@@ -427,7 +427,12 @@ body.is-maximized .win-btn .ico-restore {
 main {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 16px 16px;
+  /* 上内边距必须是 0：Chromium 里吸顶是相对**内容盒**钉的（不是含内边距的
+     padding box），所以只要这里有上内边距，吸顶的分组条就会钉在它下面，
+     上方留出一条缝，滚动时卡片正好从缝里露出来。
+     实测：padding-top 4px 时吸顶条 stickyTop=4px，改成 0 后为 0。
+     分组标题和搜索框之间的间距由 .group-head 自己的上内边距提供。 */
+  padding: 0 16px 16px;
 }
 
 .empty {
