@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TOTP Manager</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>TOTP Manager</h1>
+      <button id="add-toggle" class="ghost">+ 添加</button>
+    </header>
+
+    <form id="add-form" class="hidden">
+      <input id="f-label" placeholder="名称（如 GitHub）" required />
+      <input id="f-account" placeholder="账号（如 me@example.com）" required />
+      <input id="f-secret" placeholder="密钥（Base32，可留空）" />
+      <input id="f-note" placeholder="备注（可留空）" />
+      <div class="row">
+        <button type="submit">保存</button>
+        <button type="button" id="add-cancel" class="ghost">取消</button>
+      </div>
+      <p id="form-error" class="error"></p>
+    </form>
+
+    <main id="list"></main>
+
+    <footer>
+      <span id="vault-path"></span>
+    </footer>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

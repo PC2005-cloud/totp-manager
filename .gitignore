@@ -1,0 +1,16 @@
+# Rust
+/target
+/src-tauri/target
+
+# Node
+node_modules
+
+# Tauri 生成的 schema
+/src-tauri/gen/schemas/
+
+# 数据文件（明文存储密钥，切勿提交）
+vault.json
+
+# 编辑器
+.idea/
+.commandcode/
