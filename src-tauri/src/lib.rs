@@ -115,15 +115,13 @@ fn list_entries() -> Result<Vec<EntryView>, String> {
 ///
 /// 会先校验再写入：
 /// - `label` 和 `account` 不能是空白（这是必填字段）
-/// - 密钥和备注如果传了空字符串，会被当成「没填」而存成 `None`
-///
-/// 新增的记录不带恢复码（`codes` 为 `None`），
-/// 目前版本还没有编辑恢复码的界面。
+/// - 密钥、恢复码、备注如果传了空值，会被当成「没填」而存成 `None`
 ///
 /// # 参数（名字必须和前端 invoke 时一致）
-/// - `label`：显示名
+/// - `label`：服务名，如 `GitHub`
 /// - `account`：账号
 /// - `secret`：Base32 密钥，可以不传
+/// - `codes`：恢复码列表，可以不传
 /// - `note`：备注，可以不传
 ///
 /// # 返回
@@ -134,10 +132,11 @@ fn add_entry(
     label: String,
     account: String,
     secret: Option<String>,
+    codes: Option<Vec<String>>,
     note: Option<String>,
 ) -> Result<(), String> {
     if label.trim().is_empty() {
-        return Err("名称不能为空".into());
+        return Err("服务不能为空".into());
     }
     if account.trim().is_empty() {
         return Err("账号不能为空".into());
@@ -149,10 +148,112 @@ fn add_entry(
         account: account.trim().to_string(),
         // 空字符串视作「没填」，转成 None 让 JSON 更干净
         secret: secret.filter(|s| !s.trim().is_empty()),
-        codes: None,
+        codes: clean_codes(codes),
         note: note.filter(|s| !s.trim().is_empty()),
     });
     vault::save(&entries)
+}
+
+/// 【前端命令】覆盖某条记录的恢复码列表。
+///
+/// 传入的列表会**整体替换**原有内容，而不是追加。删除单条恢复码时，
+/// 前端把「剩下的那些」整个传过来即可，不需要单独写一个删除命令。
+///
+/// 传空列表或 `None` 会把该记录的恢复码清空。
+///
+/// # 参数
+/// - `label` / `account`：定位要修改的记录
+/// - `codes`：新的恢复码列表
+#[tauri::command]
+fn update_recovery_codes(
+    label: String,
+    account: String,
+    codes: Option<Vec<String>>,
+) -> Result<(), String> {
+    let mut entries = vault::load()?;
+    let target = entries
+        .iter_mut()
+        .find(|e| e.label == label && e.account == account)
+        .ok_or_else(|| format!("找不到记录：{label} · {account}"))?;
+
+    target.codes = clean_codes(codes);
+    vault::save(&entries)
+}
+
+/// 【前端命令】修改一条已有记录。
+///
+/// 用**原服务名 + 原账号**定位要改的那条，然后把整条记录替换成新内容。
+/// 之所以要分开传原值，是因为服务名和账号本身也可能被改 ——
+/// 如果只用新值定位，改名后就找不到原记录了。
+///
+/// 会校验两件事：
+/// - 新的服务名和账号都不能为空
+/// - 改完之后不能和另一条记录撞车（同服务 + 同账号）
+///
+/// # 参数
+/// - `original_label` / `original_account`：改之前的值，用来定位
+/// - `entry`：改之后的内容
+#[tauri::command]
+fn update_entry(
+    original_label: String,
+    original_account: String,
+    entry: Entry,
+) -> Result<(), String> {
+    let new_label = entry.label.trim().to_string();
+    let new_account = entry.account.trim().to_string();
+
+    if new_label.is_empty() {
+        return Err("服务不能为空".into());
+    }
+    if new_account.is_empty() {
+        return Err("账号不能为空".into());
+    }
+
+    let mut entries = vault::load()?;
+
+    // 改名后不能和别的记录重复，否则删除时会一次删掉两条
+    let clash = entries.iter().any(|e| {
+        e.label == new_label
+            && e.account == new_account
+            && !(e.label == original_label && e.account == original_account)
+    });
+    if clash {
+        return Err(format!("已存在「{new_label} · {new_account}」"));
+    }
+
+    let target = entries
+        .iter_mut()
+        .find(|e| e.label == original_label && e.account == original_account)
+        .ok_or_else(|| format!("找不到记录：{original_label} · {original_account}"))?;
+
+    *target = Entry {
+        label: new_label,
+        account: new_account,
+        secret: entry.secret.filter(|s| !s.trim().is_empty()),
+        codes: clean_codes(entry.codes),
+        note: entry.note.filter(|s| !s.trim().is_empty()),
+    };
+
+    vault::save(&entries)
+}
+
+/// 清理恢复码列表：逐条去空白、丢掉空串，全空则返回 `None`。
+///
+/// 这样 JSON 里不会出现 `"codes": []` 或 `"codes": ["", " "]` 这类噪音，
+/// 「没有恢复码」始终表示为字段缺失。
+fn clean_codes(codes: Option<Vec<String>>) -> Option<Vec<String>> {
+    let cleaned: Vec<String> = codes
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+        .collect();
+
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
 }
 
 /// 【前端命令】删除一条记录。
@@ -182,7 +283,7 @@ fn vault_location() -> Result<String, String> {
 
 /// 启动应用 —— 由 `main.rs` 调用。
 ///
-/// 这里只做两件事：注册上面那四个命令，然后进入 Tauri 的事件循环。
+/// 这里只做两件事：注册上面那六个命令，然后进入 Tauri 的事件循环。
 /// 事件循环会一直阻塞到用户关闭窗口为止。
 ///
 /// `#[cfg_attr(mobile, ...)]` 是为了将来移植到移动端时能自动生成入口点，
@@ -193,7 +294,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_entries,
             add_entry,
+            update_entry,
             delete_entry,
+            update_recovery_codes,
             vault_location
         ])
         .run(tauri::generate_context!())

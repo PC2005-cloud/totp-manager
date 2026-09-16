@@ -5,30 +5,89 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TOTP Manager</title>
     <link rel="stylesheet" href="style.css" />
+    <script>
+      // 尽早把主题定下来，避免亮色用户先闪一帧深色。
+      // 必须内联在 head：main.js 是 module（延迟执行），等它跑就已经渲染过了。
+      // 规则：用户选过就听用户的，没选过就跟着系统走。
+      (() => {
+        const saved = localStorage.getItem("theme");
+        const light = saved
+          ? saved === "light"
+          : window.matchMedia("(prefers-color-scheme: light)").matches;
+        document.documentElement.dataset.theme = light ? "light" : "dark";
+      })();
+    </script>
   </head>
   <body>
     <header>
       <h1>TOTP Manager</h1>
-      <button id="add-toggle" class="ghost">+ 添加</button>
+      <div class="header-actions">
+        <button id="btn-theme" class="btn btn-ghost btn-icon" title="切换主题">☀</button>
+        <button id="btn-add" class="btn btn-primary">+ 添加</button>
+      </div>
     </header>
 
-    <form id="add-form" class="hidden">
-      <input id="f-label" placeholder="名称（如 GitHub）" required />
-      <input id="f-account" placeholder="账号（如 me@example.com）" required />
-      <input id="f-secret" placeholder="密钥（Base32，可留空）" />
-      <input id="f-note" placeholder="备注（可留空）" />
-      <div class="row">
-        <button type="submit">保存</button>
-        <button type="button" id="add-cancel" class="ghost">取消</button>
+    <!-- 列表视图 -->
+    <div id="list-view">
+      <div class="searchbar">
+        <input id="search" type="text" placeholder="搜索服务或账号…" autocomplete="off" />
       </div>
+      <main id="list"></main>
+    </div>
+
+    <!-- 新增 / 编辑表单视图 -->
+    <div id="form-view">
+      <h2 id="form-title">新增账号</h2>
+
+      <div class="field">
+        <label for="f-service">
+          服务 <span class="req">*</span>
+          <span class="tip">可下拉选已有，也可输入新的</span>
+        </label>
+        <input id="f-service" list="service-list" autocomplete="off" placeholder="GitHub" />
+        <datalist id="service-list"></datalist>
+      </div>
+
+      <div class="field">
+        <label for="f-account">账号 <span class="req">*</span></label>
+        <input id="f-account" type="text" autocomplete="off" placeholder="me@company.com" />
+      </div>
+
+      <div class="field">
+        <label for="f-secret">密钥（Base32）</label>
+        <input
+          id="f-secret"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="JBSWY3DPEHPK3PXP"
+        />
+      </div>
+
+      <div class="field">
+        <label for="f-codes">恢复码<span class="tip">每行一个，可留空</span></label>
+        <textarea
+          id="f-codes"
+          rows="4"
+          spellcheck="false"
+          placeholder="a1b2c3d4e5&#10;f6g7h8i9j0"
+        ></textarea>
+      </div>
+
+      <div class="field">
+        <label for="f-note">备注</label>
+        <input id="f-note" type="text" placeholder="可留空" />
+      </div>
+
       <p id="form-error" class="error"></p>
-    </form>
 
-    <main id="list"></main>
+      <div class="form-actions">
+        <button id="btn-save" class="btn btn-primary">保存</button>
+        <button id="btn-cancel" class="btn btn-ghost">取消</button>
+      </div>
+    </div>
 
-    <footer>
-      <span id="vault-path"></span>
-    </footer>
+    <footer id="vault-path"></footer>
 
     <script type="module" src="main.js"></script>
   </body>

@@ -4,6 +4,7 @@
 
 # Node
 node_modules
+.pnpm-store/
 
 # Tauri 生成的 schema
 /src-tauri/gen/schemas/

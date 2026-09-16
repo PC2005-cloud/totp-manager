@@ -7,11 +7,12 @@
     "frontendDist": "../src"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "TOTP Manager",
         "width": 480,
-        "height": 640,
+        "height": 660,
         "resizable": true
       }
     ],

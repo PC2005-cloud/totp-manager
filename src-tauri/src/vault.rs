@@ -111,12 +111,18 @@ pub fn load() -> Result<Vec<Entry>, String> {
 
     let text = fs::read_to_string(&path).map_err(|e| format!("读取失败: {e}"))?;
 
+    // 去掉开头的 UTF-8 BOM。
+    // 记事本等编辑器保存 UTF-8 时会插入 BOM，而 JSON 规范不允许它出现，
+    // serde_json 会直接报 "expected value at line 1 column 1"。
+    // 手动编辑这个文件是很正常的用法，所以这里主动容忍。
+    let text = text.trim_start_matches('\u{feff}');
+
     // 空文件（比如用户手动清空了内容）同样视作空列表
     if text.trim().is_empty() {
         return Ok(Vec::new());
     }
 
-    serde_json::from_str(&text).map_err(|e| format!("解析失败: {e}"))
+    serde_json::from_str(text).map_err(|e| format!("解析失败: {e}"))
 }
 
 /// 覆盖写入全部记录。
@@ -210,5 +216,24 @@ mod tests {
             "vault.json 应位于 exe 同目录，实际是: {}",
             path.display()
         );
+    }
+
+    /// 验证带 UTF-8 BOM 的文件也能正常解析。
+    ///
+    /// 记事本保存 UTF-8 时会写入 BOM，而 JSON 规范不允许它出现在开头，
+    /// 直接丢给 serde_json 会报 "expected value at line 1 column 1"。
+    /// 用户手动编辑数据文件是常见用法，所以必须容忍。
+    #[test]
+    fn tolerates_utf8_bom() {
+        let with_bom = "\u{feff}[{\"label\":\"GitHub\",\"account\":\"me@x.com\"}]";
+
+        // 先确认「不处理 BOM」确实会失败，证明这个测试有意义
+        assert!(serde_json::from_str::<Vec<Entry>>(with_bom).is_err());
+
+        // 按 load() 的方式去掉 BOM 后应能正常解析
+        let cleaned = with_bom.trim_start_matches('\u{feff}');
+        let v: Vec<Entry> = serde_json::from_str(cleaned).unwrap();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].label, "GitHub");
     }
 }

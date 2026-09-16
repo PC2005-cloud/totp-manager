@@ -1,180 +1,909 @@
+/* ==========================================================================
+   TOTP Manager 样式 —— 简洁玻璃风格
+   ==========================================================================
+
+   整体思路：先铺一层深色渐变底 + 几块模糊的彩色光斑，再让所有面板用
+   「半透明 + backdrop-filter 毛玻璃」浮在这层背景之上。
+   关键是**背景必须有东西可透** —— 纯色底上的半透明面板看起来只是灰块，
+   有光斑才有玻璃质感，所以 html::before 那层光斑不是装饰，是前提。
+
+   布局保持原样：body 是一列 flex（header / 内容区 / footer），
+   内容区自行滚动。JS 依赖的类名和 CSS 变量全部保留，只换外观。
+   ========================================================================== */
+
+/* 暗色主题的变量表。亮色主题在下面用同名变量整套覆盖 ——
+   所以除这两个块以外的规则里都不要写死颜色，写死就等于把主题焊死。
+   例外：压在彩色按钮上的白色高光/描边（rgba(255, 255, 255, …)）在两个
+   主题下都成立，保持字面量不动。 */
 :root {
-  --bg: #1b1b1f;
-  --panel: #26262c;
-  --text: #e6e6e9;
-  --muted: #9a9aa3;
-  --accent: #4f8cff;
-  --danger: #ff5f56;
+  color-scheme: dark;
+
+  /* 底色与文字 */
+  --bg: #0c0e13;
+  --bg-top: #151a26;
+  --text: #eef1f7;
+  --muted: #a7afc0;
+  --dim: #6f7789;
+  --tip: #5c6474;
+
+  /* 语义色。JS 会直接引用 --ok / --danger 设置文字颜色，不能改名 */
+  --accent: #6aa2ff;
+  --accent-2: #9d7bff;
+  --danger: #ff6b6b;
+  --warn: #ffc14d;
+  --ok: #46d69b;
+
+  /* 语义色的深浅变体，给渐变和光晕用 */
+  --accent-deep: #4a7ff0;
+  --accent-hi: #7cacff;
+  --accent-hi-deep: #5588f5;
+  --accent-glow: rgba(74, 127, 240, 0.34);
+  --accent-glow-strong: rgba(74, 127, 240, 0.45);
+  --danger-deep: #e05555;
+  --danger-hi: #ff7d7d;
+  --danger-hi-deep: #e85d5d;
+
+  /* 玻璃三件套：面板底色 / 描边 / 顶部高光 */
+  --glass: rgba(255, 255, 255, 0.055);
+  --glass-strong: rgba(255, 255, 255, 0.09);
+  --glass-solid: rgba(18, 21, 29, 0.72);
+  --stroke: rgba(255, 255, 255, 0.1);
+  --stroke-soft: rgba(255, 255, 255, 0.06);
+  --stroke-hover: rgba(255, 255, 255, 0.18);
+  --track: rgba(255, 255, 255, 0.1);
+
+  /* 这两块不透明底必须贴合各自所在的背景，抽成变量单独调 */
+  --group-head-bg: rgba(12, 14, 19, 0.62);
+  --rc-bg: rgba(0, 0, 0, 0.22);
+
+  /* 背景光斑：玻璃质感的前提，亮色主题下换成同样三块但更淡 */
+  --blob-1: rgba(96, 140, 255, 0.38);
+  --blob-2: rgba(157, 123, 255, 0.32);
+  --blob-3: rgba(52, 205, 180, 0.22);
+
+  /* 阴影：浅色描边 + 向下投影，是玻璃「浮起来」的关键 */
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.42);
+
+  /* 毛玻璃模糊强度，统一在这里调 */
+  --blur: 18px;
+
+  /* 搜索框里那个放大镜。data URI 里不能用 CSS 变量，所以把整条 url 做成
+     变量，亮色主题换一张描边更深的（同一个 SVG，只改 stroke 色值） */
+  --search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236f7789' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.6-3.6'/%3E%3C/svg%3E");
+}
+
+/* ---------- 亮色主题 ---------- */
+/* 玻璃的「形」（模糊、描边、投影）完全不动，只换三件事：
+   1. 底色由深转浅
+   2. 面板由「深色玻璃上罩白纱」改成「浅色玻璃上罩白纱」，描边由提亮改成压暗
+   3. 语义色整体压深一档，保证在白底上的对比度
+   另外 color-scheme 一起切换，让原生控件（滚动条、选中高亮）也跟着走。 */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #eaeef6;
+  --bg-top: #f8fafd;
+  --text: #10131a;
+  --muted: #4e5668;
+  --dim: #79808f;
+  --tip: #8b93a2;
+
+  --accent: #2f6ff0;
+  --accent-2: #7b5cf0;
+  --danger: #d8443c;
+  --warn: #a86a06;
+  --ok: #10996a;
+
+  --accent-deep: #2560d8;
+  --accent-hi: #5b93f5;
+  --accent-hi-deep: #3f7ce8;
+  --accent-glow: rgba(47, 111, 240, 0.28);
+  --accent-glow-strong: rgba(47, 111, 240, 0.4);
+  --danger-deep: #c23b34;
+  --danger-hi: #e0564e;
+  --danger-hi-deep: #cf463f;
+
+  --glass: rgba(255, 255, 255, 0.62);
+  --glass-strong: rgba(255, 255, 255, 0.82);
+  --glass-solid: rgba(255, 255, 255, 0.86);
+  --stroke: rgba(16, 24, 48, 0.12);
+  --stroke-soft: rgba(16, 24, 48, 0.07);
+  --stroke-hover: rgba(16, 24, 48, 0.2);
+  --track: rgba(16, 24, 48, 0.12);
+
+  --group-head-bg: rgba(234, 238, 246, 0.72);
+  --rc-bg: rgba(16, 24, 48, 0.045);
+
+  --blob-1: rgba(96, 140, 255, 0.3);
+  --blob-2: rgba(157, 123, 255, 0.24);
+  --blob-3: rgba(52, 205, 180, 0.2);
+
+  --shadow: 0 8px 24px rgba(23, 32, 62, 0.1);
+  --shadow-lg: 0 16px 40px rgba(23, 32, 62, 0.16);
+
+  --search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2379808f' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.6-3.6'/%3E%3C/svg%3E");
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  height: 100%;
+  /* 基调：上方偏冷，向下沉入底色（亮色主题下就是「上方更白」） */
+  background: radial-gradient(120% 90% at 50% 0%, var(--bg-top) 0%, var(--bg) 58%);
+}
+
+/* 背景光斑。固定在视口上不参与滚动，让滚动时玻璃的透光保持一致。
+   用 html::before 而不是 body::before：body 是 flex 容器，
+   它的伪元素即使 position: fixed 也容易让人误判是否占了布局。
+   z-index: -1 让它落在内容之下、html 背景之上。 */
+html::before {
+  content: "";
+  position: fixed;
+  inset: -25%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 34% at 16% 10%, var(--blob-1), transparent 68%),
+    radial-gradient(32% 28% at 88% 6%, var(--blob-2), transparent 68%),
+    radial-gradient(46% 38% at 78% 92%, var(--blob-3), transparent 70%);
+  filter: blur(26px);
+  animation: drift 26s ease-in-out infinite alternate;
+}
+
+/* 光斑缓慢漂移，避免界面完全静止显得死板。
+   幅度很小（几个百分点），只是让玻璃里的颜色有细微流动。 */
+@keyframes drift {
+  from {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(2%, 2%, 0) scale(1.08);
+  }
+}
+
 body {
   margin: 0;
-  padding: 16px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   font-family: "Segoe UI", system-ui, sans-serif;
-  background: var(--bg);
-  color: var(--text);
   font-size: 14px;
+  color: var(--text);
+  overflow: hidden;
+  /* 背景交给 html，这里保持透明，光斑才能透上来 */
+  background: transparent;
 }
+
+/* ---------- 顶部标题栏 ---------- */
 
 header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  gap: 10px;
+  padding: 14px 16px;
+  flex-shrink: 0;
+  background: var(--glass);
+  border-bottom: 1px solid var(--stroke-soft);
+  backdrop-filter: blur(var(--blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(150%);
 }
 
-h1 {
-  font-size: 18px;
+header h1 {
+  font-size: 15px;
   margin: 0;
   font-weight: 600;
+  letter-spacing: 0.3px;
 }
 
-button {
+/* ---------- 按钮 ---------- */
+
+.btn {
   font: inherit;
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: #fff;
+  font-size: 12.5px;
+  padding: 7px 13px;
+  border-radius: 9px;
+  border: 1px solid transparent;
   cursor: pointer;
+  transition: 0.16s;
+  /* 玻璃按钮的顶部高光 */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
-button.ghost {
-  background: transparent;
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn-primary {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: linear-gradient(180deg, var(--accent), var(--accent-deep));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 6px 16px var(--accent-glow);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent-hi-deep));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 8px 20px var(--accent-glow-strong);
+}
+
+.btn-ghost {
   color: var(--muted);
-  border-color: #3a3a42;
+  background: var(--glass);
+  border-color: var(--stroke);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
-button.ghost:hover {
+.btn-ghost:hover {
+  color: var(--text);
+  background: var(--glass-strong);
+  border-color: var(--stroke-hover);
+}
+
+/* 标题栏右侧按钮组：主题切换 + 添加 */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 图标按钮（主题切换），比文字按钮收窄一点，接近方形 */
+.btn-icon {
+  padding: 7px 10px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* ---------- 列表视图 ---------- */
+
+#list-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.searchbar {
+  padding: 12px 16px 8px;
+  flex-shrink: 0;
+}
+
+.searchbar input {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 12px 9px 35px;
+  border-radius: 10px;
+  border: 1px solid var(--stroke);
+  color: var(--text);
+  background-color: var(--glass);
+  /* 放大镜图标，用内联 SVG 免得为一个小图标多一个文件。
+     data URI 里不能用 CSS 变量，所以整条 url 由 --search-icon 提供，
+     亮色主题换一张描边更深的 */
+  background-image: var(--search-icon);
+  background-repeat: no-repeat;
+  background-position: 12px center;
+  background-size: 15px 15px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: 0.16s;
+}
+
+.searchbar input::placeholder {
+  color: var(--dim);
+}
+
+.searchbar input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background-color: var(--glass-strong);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 16px 16px;
+}
+
+.empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 44px 0;
+}
+
+/* 读取失败等错误态，与「暂无记录」区分开 */
+.empty.is-error {
+  color: var(--danger);
+  padding: 22px 16px;
+  text-align: left;
+  font-size: 12.5px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+/* ---------- 服务分组 ---------- */
+
+.group {
+  margin-bottom: 6px;
+}
+
+/* 分组标题吸顶。用负外边距抵消 main 的左右内边距，
+   让玻璃条横向铺满，滚动时不会露出两侧的内容。
+   必须有半透明底 + 模糊：否则卡片会从标题下面透出来，糊成一团。 */
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 -16px;
+  padding: 9px 16px 7px;
+  cursor: pointer;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--group-head-bg);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+}
+
+.group-head .caret {
+  font-size: 9px;
+  color: var(--dim);
+  transition: 0.2s;
+  display: inline-block;
+  width: 10px;
+}
+
+.group.collapsed .caret {
+  transform: rotate(-90deg);
+}
+
+.group-name {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  text-transform: uppercase;
+  transition: 0.15s;
+}
+
+.group-head:hover .group-name {
   color: var(--text);
 }
 
-.hidden {
-  display: none !important;
+.group-count {
+  font-size: 10.5px;
+  color: var(--muted);
+  background: var(--glass-strong);
+  border: 1px solid var(--stroke-soft);
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-variant-numeric: tabular-nums;
 }
 
-form {
+.group-body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px;
-  margin-bottom: 16px;
-  background: var(--panel);
-  border-radius: 8px;
 }
 
-input {
-  font: inherit;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: 1px solid #3a3a42;
-  background: #1f1f24;
-  color: var(--text);
+.group.collapsed .group-body {
+  display: none;
 }
 
-input:focus {
-  outline: none;
-  border-color: var(--accent);
+/* ---------- 条目卡片 ---------- */
+
+.card {
+  border-radius: 13px;
+  border: 1px solid var(--stroke-soft);
+  background: var(--glass);
+  backdrop-filter: blur(var(--blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(150%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    var(--shadow);
+  transition: 0.16s;
 }
 
-.row {
+.card:hover {
+  border-color: var(--stroke);
+  background: var(--glass-strong);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    var(--shadow-lg);
+}
+
+.card-main {
   display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+}
+
+.meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.meta .account {
+  font-weight: 600;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta .note {
+  color: var(--dim);
+  font-size: 11px;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 验证码 */
+.code {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 21px;
+  letter-spacing: 1.5px;
+  /* 等宽数字：验证码只有数字，但每秒重排时宽度必须完全不变，
+     否则圆环会跟着左右抖动 */
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  user-select: none;
+  padding: 3px 7px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  transition: 0.16s;
+}
+
+.code:hover {
+  color: var(--accent);
+  /* 半透明色一律从语义色算出来：换主题时自动跟着变 */
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.code.copied {
+  color: var(--ok);
+  font-size: 14px;
+  letter-spacing: 0;
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 30%, transparent);
+}
+
+.err {
+  color: var(--danger);
+  font-size: 11.5px;
+  line-height: 1.4;
+  max-width: 130px;
+  text-align: right;
+}
+
+/* 卡片右侧操作区：编辑 + 删除
+   平时透明，悬停卡片才显现；始终占位，避免悬停时布局跳动。
+   用 :has 让「确认删除」态即使不悬停也保持可见。 */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: 0.16s;
+}
+
+.card:hover .actions,
+.actions:has(.confirm) {
+  opacity: 1;
+}
+
+.act {
+  min-width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--dim);
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 7px;
+  cursor: pointer;
+  padding: 0 3px;
+  transition: 0.16s;
+}
+
+.act:hover {
+  color: var(--text);
+  background: var(--glass-strong);
+  border-color: var(--stroke);
+}
+
+.act.del:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+/* 二次确认态 */
+.act.confirm {
+  width: auto;
+  padding: 0 8px;
+  color: #fff;
+  background: linear-gradient(180deg, var(--danger), var(--danger-deep));
+  border-color: rgba(255, 255, 255, 0.2);
+  font-size: 11px;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--danger) 32%, transparent);
+}
+
+.act.confirm:hover {
+  background: linear-gradient(180deg, var(--danger-hi), var(--danger-hi-deep));
+  color: #fff;
+}
+
+/* ---------- 倒计时圆环 ---------- */
+
+/* 圆环画在 ::after 上，而不是元素自身 ——
+   因为 mask 会连子元素一起裁掉，套在 .ring 上会把里面的数字也挖空。
+   把带 mask 的 conic-gradient 放进 ::after，数字就能正常压在它上面。 */
+.ring {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) calc(var(--p) * 1%), var(--track) 0);
+  -webkit-mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 3px),
+    #000 calc(100% - 3px)
+  );
+  mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 3px),
+    #000 calc(100% - 3px)
+  );
+}
+
+.ring span {
+  position: relative;
+  z-index: 1;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.ring.low::after {
+  background: conic-gradient(var(--warn) calc(var(--p) * 1%), var(--track) 0);
+}
+
+.ring.low span {
+  color: var(--warn);
+}
+
+.ring.crit::after {
+  background: conic-gradient(var(--danger) calc(var(--p) * 1%), var(--track) 0);
+}
+
+.ring.crit span {
+  color: var(--danger);
+}
+
+/* ---------- 恢复码 ---------- */
+
+.card-foot {
+  border-top: 1px solid var(--stroke-soft);
+  padding: 7px 13px;
+  display: flex;
+  align-items: center;
   gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: 0.15s;
+}
+
+.card-foot:hover {
+  color: var(--text);
+  /* 用文字色算一层薄纱：暗色主题下是提亮，亮色主题下是压暗 */
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.card-foot .caret {
+  margin-left: auto;
+  transition: 0.2s;
+  font-size: 9px;
+}
+
+.card-foot.open .caret {
+  transform: rotate(180deg);
+}
+
+.recovery {
+  padding: 0 13px 11px;
+  display: none;
+}
+
+.recovery.open {
+  display: block;
+}
+
+.recovery .hint {
+  color: var(--dim);
+  font-size: 11px;
+  margin: 2px 0 8px;
+}
+
+.rc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--stroke-soft);
+  background: var(--rc-bg);
+  margin-bottom: 5px;
+}
+
+.rc-row code {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12.5px;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  flex: 1;
+  word-break: break-all;
+}
+
+.rc-row .rc-copy {
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 11px;
+  flex-shrink: 0;
+  transition: 0.15s;
+}
+
+.rc-row .rc-copy:hover {
+  color: var(--accent);
+}
+
+.rc-row .rc-del {
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  background: none;
+  border: none;
+  padding: 0;
+  flex-shrink: 0;
+  transition: 0.15s;
+}
+
+.rc-row .rc-del:hover {
+  color: var(--danger);
+}
+
+/* 恢复码删除的二次确认态 */
+.rc-row .rc-del.confirm {
+  color: #fff;
+  background: linear-gradient(180deg, var(--danger), var(--danger-deep));
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.rc-row .rc-del.confirm:hover {
+  background: linear-gradient(180deg, var(--danger-hi), var(--danger-hi-deep));
+  color: #fff;
+}
+
+/* ---------- 新增 / 编辑表单 ---------- */
+
+#form-view {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  padding: 14px 16px;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+#form-view.open {
+  display: flex;
+}
+
+#form-view h2 {
+  font-size: 13px;
+  margin: 0 0 2px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.3px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field label {
+  font-size: 11.5px;
+  color: var(--dim);
+}
+
+.field label .req {
+  color: var(--danger);
+}
+
+.field label .tip {
+  color: var(--tip);
+  font-size: 10.5px;
+  margin-left: 4px;
+}
+
+.field input,
+.field textarea {
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--stroke);
+  background-color: var(--glass);
+  color: var(--text);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: 0.16s;
+}
+
+.field textarea {
+  resize: vertical;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.field input:focus,
+.field textarea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background-color: var(--glass-strong);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.field input::placeholder,
+.field textarea::placeholder {
+  color: var(--dim);
 }
 
 .error {
   color: var(--danger);
   margin: 0;
   min-height: 1em;
+  font-size: 12px;
 }
 
-.entry {
+.form-actions {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px;
-  margin-bottom: 8px;
-  background: var(--panel);
-  border-radius: 8px;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 14px;
 }
 
-.entry .meta {
-  min-width: 0;
+.form-actions .btn {
+  flex: 1;
+  padding: 10px 12px;
 }
 
-.entry .label {
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* ---------- 自定义滚动条 ---------- */
+/* Chromium 支持 ::-webkit-scrollbar 这套伪元素，可以完全接管外观。
+   注意不要再设 scrollbar-width / scrollbar-color —— 那两个标准属性一旦生效，
+   下面的 ::-webkit-scrollbar 规则就会被忽略。
+
+   轨道全透明，滑块用「透明边框 + background-clip: content-box」
+   缩成一条细圆角条，看起来离边缘有留白，而不是贴边的粗灰条。 */
+
+main::-webkit-scrollbar,
+#form-view::-webkit-scrollbar,
+.field textarea::-webkit-scrollbar {
+  width: 10px;
 }
 
-.entry .account {
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.entry .right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.code {
-  font-family: Consolas, "Cascadia Mono", monospace;
-  font-size: 22px;
-  letter-spacing: 2px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.code:hover {
-  color: var(--accent);
-}
-
-.remaining {
-  color: var(--muted);
-  font-size: 12px;
-  width: 2.5em;
-  text-align: right;
-}
-
-.entry .err {
-  color: var(--danger);
-  font-size: 12px;
-}
-
-.del {
+main::-webkit-scrollbar-track,
+#form-view::-webkit-scrollbar-track,
+.field textarea::-webkit-scrollbar-track {
   background: transparent;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 16px;
-  padding: 2px 6px;
 }
 
-.del:hover {
-  color: var(--danger);
+main::-webkit-scrollbar-thumb,
+#form-view::-webkit-scrollbar-thumb,
+.field textarea::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--text) 14%, transparent);
+  border-radius: 6px;
+  /* 上下也留白，避免滑块顶到两端 */
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
 
-.empty {
-  color: var(--muted);
-  text-align: center;
-  padding: 32px 0;
+main::-webkit-scrollbar-thumb:hover,
+#form-view::-webkit-scrollbar-thumb:hover,
+.field textarea::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--text) 26%, transparent);
 }
+
+/* 滑块两端的箭头按钮没有意义，去掉 */
+main::-webkit-scrollbar-button,
+#form-view::-webkit-scrollbar-button,
+.field textarea::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* 右下角那个小方块（横向纵向都有滚动条时才出现）也不要 */
+main::-webkit-scrollbar-corner,
+#form-view::-webkit-scrollbar-corner,
+.field textarea::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ---------- 底部路径 ---------- */
 
 footer {
-  margin-top: 24px;
-  color: var(--muted);
-  font-size: 11px;
-  word-break: break-all;
+  padding: 9px 16px;
+  flex-shrink: 0;
+  color: var(--dim);
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--glass);
+  border-top: 1px solid var(--stroke-soft);
+  backdrop-filter: blur(var(--blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(150%);
+  transition: color 0.15s;
+}
+
+/* ---------- 降级与偏好 ---------- */
+
+/* 极老的 WebView2 不支持 backdrop-filter。此时半透明面板会显得浑浊，
+   所以调高透明度、去掉光斑的模糊，让界面回到接近纯色的观感。
+   WebView2 是随系统更新的常青版 Chromium，实际几乎不会走到这里。 */
+@supports not (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
+  :root {
+    --glass: rgba(255, 255, 255, 0.09);
+    --glass-strong: rgba(255, 255, 255, 0.13);
+  }
+
+  html::before {
+    filter: none;
+    opacity: 0.5;
+  }
+}
+
+/* 尊重系统的「减少动态效果」设置 */
+@media (prefers-reduced-motion: reduce) {
+  html::before {
+    animation: none;
+  }
+
+  * {
+    transition-duration: 0.01ms !important;
+  }
 }
